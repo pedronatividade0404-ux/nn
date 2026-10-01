@@ -23,7 +23,18 @@ if '--launch' in sys.argv:
 lock=open(ROOT/'agent.lock','a')
 try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
 except BlockingIOError:sys.exit(0)
-procs={}; states={}; retries={}; starts={}; revisions={}; errors={}
+procs={}; states={}; retries={}; starts={}; revisions={}; errors={}; slots={}
+SLOT_DIR=Path(os.getenv("NEXATOK_SLOT_DIR",str(ROOT/"slots")));SLOT_DIR.mkdir(parents=True,exist_ok=True)
+def reserve_slot(k):
+ for i in range(int(os.getenv("MAX_CONCURRENT_STREAMS","1"))):
+  f=open(SLOT_DIR/str(i),"a")
+  try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  except BlockingIOError:f.close();continue
+  slots[k]=f;return True
+ return False
+def release_slot(k):
+ f=slots.pop(k,None)
+ if f:f.close()
 def capture_errors(pipe,tail,rtmp):
  try:
   parts=urlsplit(rtmp)
@@ -54,6 +65,7 @@ def stop(k):
   p.terminate()
   try:p.wait(timeout=8)
   except subprocess.TimeoutExpired:p.kill();p.wait()
+ release_slot(k)
 try:
  while running:
   cfg=load(ROOT/'config.json',{'expires':0,'accounts':{}}); now=time.time(); active=cfg.get('expires',0)>now
@@ -77,7 +89,7 @@ try:
    if not desired:
     stop(k);status.update(state='stopped',started_at=None);continue
    if p and p.poll() is not None:
-    code=p.returncode;procs.pop(k);p=None
+    code=p.returncode;procs.pop(k);release_slot(k);p=None
     detail=' | '.join(list(errors.get(k,[]))[-3:])
     status.update(state='error' if code else 'finished',error=('FFmpeg encerrou com código '+str(code)+('. '+detail if detail else '')) if code else '')
     if code and c.get('restart_on_crash'):retries[k]=now+c.get('restart_delay',30);status['state']='restarting'
@@ -87,17 +99,20 @@ try:
    if not p and now>=retries.get(k,0):
     path=ROOT/'assets'/c.get('video','')
     if not path.is_file():status.update(state='error',error='Vídeo não encontrado.');retries[k]=float('inf');continue
+    if not reserve_slot(k):
+     status.update(state='waiting_capacity',error='Limite de lives simultâneas do worker atingido. Pare outra transmissão.');retries[k]=now+5;continue
     args=['ffmpeg','-hide_banner','-loglevel','error','-re']
     if c.get('loop',True):args+=['-stream_loop','-1']
-    args+=['-i',str(path),'-c:v','libx264','-preset','veryfast','-b:v','2500k','-maxrate','2500k','-bufsize','5000k','-pix_fmt','yuv420p','-g','60','-c:a','aac','-b:a','128k','-ar','44100','-f','flv',c['rtmp']]
+    args+=['-i',str(path),'-c:v','libx264','-preset','veryfast','-threads',os.getenv('FFMPEG_THREADS','1'),'-vf','scale=960:540:force_original_aspect_ratio=decrease:force_divisible_by=2','-r','30','-b:v','2500k','-maxrate','2500k','-bufsize','5000k','-pix_fmt','yuv420p','-g','60','-c:a','aac','-b:a','128k','-ar','44100','-f','flv',c['rtmp']]
     try:
      tail=deque(maxlen=8);errors[k]=tail
      procs[k]=subprocess.Popen(args,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
      threading.Thread(target=capture_errors,args=(procs[k].stderr,tail,c['rtmp']),daemon=True).start()
      starts[k]=now;status.update(state='starting',started_at=now,error='')
-    except OSError:status.update(state='error',error='Não foi possível executar FFmpeg.');retries[k]=now+30
+    except OSError:
+     release_slot(k);status.update(state='error',error='Não foi possível executar FFmpeg.');retries[k]=now+30
    elif p and now-starts[k]>2:status['state']='running'
-  atomic(ROOT/'status.json',{'heartbeat':now,'accounts':states,'version':3})
+  atomic(ROOT/'status.json',{'heartbeat':now,'accounts':states,'version':4})
   # Local deadline stops FFmpeg even if the Vercel callback is unreachable.
   # A scoped callback asks the backend to stop the sandbox, reducing compute billing.
   if not active and cfg.get('expires',0)>0 and cfg.get('expiry_url') and now>=next_expiry_attempt:

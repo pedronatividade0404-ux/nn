@@ -1,2 +1,2 @@
-// Same-origin on Render. For Vercel, replace with your Render API HTTPS origin.
+// API served from the same Vercel origin. WORKER_URL is server-only.
 window.NEXA_API = '';

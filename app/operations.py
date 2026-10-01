@@ -6,6 +6,7 @@ from app.db import Session,User,Account,Asset,Job,Control,init
 from app.security import unseal,seal
 from app.daytona_service import client,get,provision
 from app.tiktok import TikTok
+from app.diagnostics import stage
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(message)s')
 ROOT='/home/daytona/nexatok/'
 def sync(s,u):
@@ -21,8 +22,8 @@ def sync(s,u):
   if c.get('video'):
    asset=s.get(Asset,c['video']);c['video']=Path(asset.path).name if asset and asset.user_id==u.id else ''
   cfg['accounts'][a.id]=c
- sandbox.fs.upload_file(json.dumps(cfg).encode(),ROOT+'config.pending')
- r=sandbox.process.exec('chmod 600 /home/daytona/nexatok/config.pending && mv /home/daytona/nexatok/config.pending /home/daytona/nexatok/config.json',timeout=10)
+ stage('enviar configuração ao Railway',lambda:sandbox.fs.upload_file(json.dumps(cfg).encode(),ROOT+'config.pending'))
+ r=stage('aplicar configuração no Railway',lambda:sandbox.process.exec('chmod 600 /home/daytona/nexatok/config.pending && mv /home/daytona/nexatok/config.pending /home/daytona/nexatok/config.json',timeout=10))
  if r.exit_code!=0:raise RuntimeError('Falha ao sincronizar configurações.')
  read_status(s,u,sandbox)
 def read_status(s,u,sandbox=None):
@@ -39,7 +40,12 @@ def execute(s,j):
  if j.kind=='provision':
   if u.expires<=time.time():raise ValueError('Plano expirado.')
   u.env_status='creating';s.commit()
-  sandbox=provision(u);u.sandbox=sandbox.id;u.env_status='ready';u.env_error='';s.commit();sync(s,u);return
+  migrating=bool(u.sandbox and not u.sandbox.startswith('railway-'))
+  sandbox=provision(u)
+  if migrating:
+   for account in s.scalars(select(Account).where(Account.user_id==u.id)):
+    account.config={**account.config,'desired':'stopped','video':'','cover':'','revision':account.config.get('revision',0)+1}
+  u.sandbox=sandbox.id;u.env_status='ready';u.env_error='';s.commit();sync(s,u);return
  a=s.get(Account,j.payload.get('account_id'))
  if not a or a.user_id!=u.id:raise ValueError('Conta removida.')
  c=dict(a.config)

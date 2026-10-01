@@ -1,45 +1,47 @@
-import os
+"""Railway transport. Module name retained for compatibility with existing imports."""
+import os,re
 from pathlib import Path
+from types import SimpleNamespace
+import httpx
 from .diagnostics import stage
-from daytona.common.errors import DaytonaNotFoundError, DaytonaConflictError
-from daytona import Daytona, DaytonaConfig, CreateSandboxFromSnapshotParams, ListSandboxesQuery
-
-def client():
- if not os.getenv('DAYTONA_API_KEY'): raise RuntimeError('Configure DAYTONA_API_KEY nas variáveis Production do Vercel.')
- return Daytona(DaytonaConfig(api_key=os.environ['DAYTONA_API_KEY'],api_url=os.getenv('DAYTONA_API_URL','https://app.daytona.io/api')))
-def get(user):
- if not user.sandbox: raise RuntimeError('Ambiente ainda não disponível.')
- return client().get(user.sandbox)
-def find_named(d,user):
- try:s=d.get('nexatok-'+user.id)
- except DaytonaNotFoundError:return None
- if s.name!='nexatok-'+user.id or (s.labels or {}).get('nexatok_user')!=user.id:
-  raise ValueError('O ambiente com este nome não possui a identificação esperada do usuário. Revise as etiquetas no Daytona.')
- return s
-
-def create_or_reuse(d,user,snapshot):
- try:
-  return d.create(CreateSandboxFromSnapshotParams(name='nexatok-'+user.id,snapshot=snapshot,labels={'nexatok_user':user.id},public=False,auto_stop_interval=0,auto_pause_interval=0),timeout=120)
- except DaytonaConflictError:
-  s=find_named(d,user)
-  if s is None:raise
-  return s
-
+PREFIX='/home/daytona/nexatok/'
+class WorkerError(Exception):
+ def __init__(self,status):self.status_code=status;super().__init__('Worker request failed')
+def request(user,method,path,*,content=None,params=None,json=None,timeout=60):
+ url=os.getenv('WORKER_URL','').rstrip('/');token=os.getenv('WORKER_TOKEN','')
+ if not url.startswith('https://') or len(token)<32:raise ValueError('Configure WORKER_URL HTTPS e WORKER_TOKEN (mínimo 32 caracteres) no Vercel.')
+ with httpx.Client(timeout=timeout,follow_redirects=False) as c:
+  r=c.request(method,url+'/v1/users/'+user+path,headers={'Authorization':'Bearer '+token},content=content,params=params,json=json)
+ if r.status_code>=400:
+  # Never expose arbitrary upstream messages or bodies containing secrets.
+  if r.status_code==409:raise ValueError('Worker sem capacidade para esta operação. Pare outra live ou confira o limite de usuários.')
+  raise WorkerError(r.status_code)
+ return r
+class FS:
+ def __init__(self,id):self.id=id
+ def relative(self,path):
+  if not path.startswith(PREFIX):raise ValueError('Caminho inválido.')
+  return path[len(PREFIX):]
+ def upload_file(self,source,path,timeout=60):
+  data=source if isinstance(source,bytes) else Path(source).read_bytes()
+  request(self.id,'PUT','/file',content=data,params={'path':self.relative(path)},timeout=timeout)
+ def download_file(self,path):return request(self.id,'GET','/file',params={'path':self.relative(path)}).content
+ def delete_file(self,path,recursive=False):request(self.id,'DELETE','/file',params={'path':self.relative(path)})
+class Process:
+ def __init__(self,id):self.id=id
+ def exec(self,command,timeout=60):
+  if command=='chmod 600 /home/daytona/nexatok/config.pending && mv /home/daytona/nexatok/config.pending /home/daytona/nexatok/config.json':
+   r=request(self.id,'POST','/commit',timeout=timeout)
+  elif re.fullmatch(r'mkdir -p /home/daytona/nexatok/assets/\.uploads/[a-f0-9]{32}',command):
+   r=request(self.id,'POST','/upload-begin',json={'id':command.rsplit('/',1)[1]},timeout=timeout)
+  elif re.fullmatch(r'python3 /home/daytona/nexatok/finalize_upload.py [a-f0-9]{32} [0-9]+ \.(mp4|mkv|mov|webm|jpg|jpeg|png)',command):
+   _,_,id,size,ext=command.split();r=request(self.id,'POST','/upload-complete',json={'id':id,'size':int(size),'ext':ext},timeout=timeout)
+  else:raise ValueError('Comando não permitido no worker.')
+  return SimpleNamespace(exit_code=0,result='')
+class Environment:
+ def __init__(self,id):self.user_id=id;self.id='railway-'+id;self.fs=FS(id);self.process=Process(id)
+def get(user):return Environment(user.id)
 def provision(user):
- if not os.getenv('DAYTONA_API_KEY','').strip():raise ValueError('DAYTONA_API_KEY não definida. Configure em Production no Vercel e faça redeploy.')
- d=stage("autenticar Daytona",client)
- existing=stage('listar ambientes Daytona',lambda:list(d.list(ListSandboxesQuery(labels={'nexatok_user':user.id}))))
- if len(existing)>1: raise RuntimeError('Mais de um sandbox para este usuário; revise no Daytona.')
- s=existing[0] if existing else stage('buscar ambiente pelo nome',lambda:find_named(d,user))
- if s is None:
-  snapshot=os.getenv('DAYTONA_SNAPSHOT_'+user.plan.upper()) or os.getenv('DAYTONA_SNAPSHOT')
-  if not snapshot: raise RuntimeError('Configure DAYTONA_SNAPSHOT com FFmpeg e Python instalados.')
-  s=stage('criar sandbox Daytona',lambda:create_or_reuse(d,user,snapshot))
- if str(s.state).lower().split('.')[-1]!='started':stage('iniciar ambiente existente',lambda:d.start(s))
- r=stage('verificar Python e FFmpeg',lambda:s.process.exec('mkdir -p /home/daytona/nexatok/assets && command -v ffmpeg && command -v python3',timeout=20))
- if r.exit_code!=0: raise ValueError('O snapshot deve conter FFmpeg, Python 3 e /home/daytona gravável.')
- for name in ('agent.py','finalize_upload.py'):
-  stage('enviar '+name,lambda:s.fs.upload_file(str(Path(__file__).resolve().parents[1]/'worker'/name),'/home/daytona/nexatok/'+name,timeout=30))
- r=stage('iniciar supervisor',lambda:s.process.exec('cd /home/daytona/nexatok && python3 agent.py --launch',timeout=15))
- if r.exit_code!=0: raise ValueError('Não foi possível iniciar supervisor de transmissão no snapshot.')
- return s
+ stage('preparar ambiente Railway',lambda:request(user.id,'POST','/provision'))
+ return get(user)
+def client():return SimpleNamespace(stop=lambda sandbox,**kw:request(sandbox.user_id,'POST','/stop'))

@@ -121,8 +121,8 @@ def test_upload_finalizer_assembles_actual_chunks_and_is_idempotent(tmp_path):
 
 def test_provider_diagnostics_never_log_exception_secrets(caplog):
  from app.diagnostics import StageError,report
- from daytona.common.errors import DaytonaForbiddenError
- e=DaytonaForbiddenError('Authorization: Bearer TOP_SECRET cookie=sessionid=PRIVATE',status_code=403)
+ from app.daytona_service import WorkerError
+ e=WorkerError(403);e.args=('Authorization: Bearer TOP_SECRET cookie=sessionid=PRIVATE',)
  message=report(StageError('listar ambientes Daytona',e),'reference-id')
  assert 'HTTP 403' in message;assert 'listar ambientes' in message
  assert 'TOP_SECRET' not in caplog.text+message

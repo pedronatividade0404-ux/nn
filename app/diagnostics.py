@@ -15,8 +15,8 @@ def report(e,job_id):
  if not isinstance(status,int):status=getattr(getattr(cause,'response',None),'status_code',None)
  if not isinstance(status,int):status=None
  cls=type(cause).__name__
- hint={401:'Confira a API key Daytona.',403:'Confira permissões e organização da API key.',404:'Confira snapshot e região/organização.',429:'Limite de requisições atingido; aguarde.',400:'O Daytona recusou os parâmetros; confira snapshot, recursos e limites.',409:'Há um conflito de estado ou recurso no Daytona.',503:'O serviço está indisponível; tente novamente.'}.get(status,'')
- if 'Timeout' in cls:hint='O provedor demorou para responder. Confira se o sandbox foi criado antes de tentar recuperar.'
+ hint={401:'Confira WORKER_TOKEN nos dois serviços.',403:'Confira a autenticação do worker.',404:'Confira WORKER_URL e os arquivos do usuário no volume.',429:'Limite de requisições atingido; aguarde.',400:'O worker Railway recusou os parâmetros; confira configuração e limites do worker.',409:'Há um conflito de estado ou recurso no worker Railway.',503:'O serviço está indisponível; tente novamente.'}.get(status,'')
+ if 'Timeout' in cls:hint='O provedor demorou para responder. Confira o estado e os logs do worker no Railway.'
  if isinstance(cause,FileNotFoundError):hint='Um arquivo necessário não foi incluído no deploy.'
  frames=[f'{f.filename.rsplit("/",1)[-1]}:{f.lineno}:{f.name}' for f in traceback.extract_tb(cause.__traceback__)]
  logger.error('NEXATOK_JOB_FAILED job=%s stage=%s type=%s status=%s frames=%s',job_id,step,cls,status,','.join(frames))

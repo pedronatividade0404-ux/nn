@@ -246,8 +246,8 @@ def upload(kind:str='video',file:UploadFile=File(...),u=Depends(current),s=Depen
  if kind not in ('video','cover'):raise HTTPException(422,'Tipo inválido.')
  ext=Path(file.filename or '').suffix.lower()
  if ext not in (['.mp4','.mov','.mkv','.webm'] if kind=='video' else ['.jpg','.jpeg','.png']):raise HTTPException(422,'Formato de arquivo não suportado.')
- limit=3*1024*1024 if os.getenv('VERCEL') else (int(os.getenv('MAX_VIDEO_MB','500'))*1024*1024 if kind=='video' else 5*1024*1024)
- quota=int(os.getenv('MAX_STORAGE_MB','2000'))*1024*1024
+ limit=3*1024*1024 if os.getenv('VERCEL') else (int(os.getenv('MAX_VIDEO_MB','100'))*1024*1024 if kind=='video' else 5*1024*1024)
+ quota=int(os.getenv('MAX_STORAGE_MB','200'))*1024*1024
  u=lockuser(s,u)
  total=s.scalar(select(func.sum(Asset.size)).where(Asset.user_id==u.id)) or 0
  a=Asset(id=uid(),user_id=u.id,name=Path(file.filename or 'arquivo').name,kind=kind,size=0)
@@ -261,7 +261,7 @@ def upload(kind:str='video',file:UploadFile=File(...),u=Depends(current),s=Depen
   if not size:raise HTTPException(422,'Arquivo vazio.')
   tmp.flush()
   try:ds.get(u).fs.upload_file(tmp.name,a.path)
-  except Exception:raise HTTPException(502,'Falha no envio para o Daytona. Tente novamente.')
+  except Exception:raise HTTPException(502,'Falha no envio para o Railway. Tente novamente.')
  a.size=size;s.add(a);s.commit();return {'id':a.id,'name':a.name}
 @app.delete('/api/assets/{id}')
 def remove_asset(id:str,u=Depends(current),s=Depends(db)):
@@ -269,7 +269,7 @@ def remove_asset(id:str,u=Depends(current),s=Depends(db)):
  for account in s.scalars(select(Account).where(Account.user_id==u.id)):
   if id in (account.config.get('video'),account.config.get('cover')):raise HTTPException(409,'Desvincule o arquivo nas configurações das contas.')
  try:ds.get(u).fs.delete_file(a.path)
- except Exception:raise HTTPException(502,'Falha ao excluir no Daytona.')
+ except Exception:raise HTTPException(502,'Falha ao excluir no Railway.')
  s.delete(a);s.commit();return {'ok':True}
 @app.post('/api/tiktok/qr')
 def qr_start(u=Depends(current),s=Depends(db)):

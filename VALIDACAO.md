@@ -1,8 +1,16 @@
-# Validação — Vercel + Daytona
+# Validação da versão Vercel + Railway
 
-- 24 testes locais: autenticação, CSRF/origem, isolamento por usuário, limites e criptografia, renovação/uso único de chave, permissões admin, state/client_ticket QR, start/stop/expiração do supervisor, execução de provisionamento na requisição, trava por usuário, envio em partes com repetição idempotente e montagem simulada, callback de expiração autenticado, renovação consultada no banco, manutenção diária e proteção contra repetir uma criação de sala com resultado incerto.
-- Sintaxe JavaScript e compilação Python verificadas.
-- Entrypoint `index.py` exporta `app`; configuração Vercel sem rewrite para Render e sem build `dist`.
-- Não há `worker/main.py` nem necessidade de Background Worker Render/PC ligado. `worker/agent.py` é enviado para o Daytona e executado lá.
+- 33 testes locais passaram (`python -m pytest -q`). Houve um aviso de depreciação de Starlette/httpx.
+- Foram verificados autenticação do worker, separação dos arquivos por usuário, bloqueio de caminhos indevidos, envio de arquivos em partes, aplicação de configuração e parada por usuário.
+- Foram verificados limite global de uma live, liberação de capacidade, ocultação de chaves nos erros, restauração após reinício e encerramento por expiração do plano.
+- A compilação dos arquivos Python e a sintaxe de `app/static/app.js` passaram.
+- A configuração Railway, o ponto de entrada Vercel e a remoção da dependência Daytona foram conferidos.
+- Um teste com FFmpeg real transcodificou um vídeo local com a nova configuração de escala, 30 fps e uma thread, com saída 0.
 
-Testes de provedor são simulados: falta validar deploy real no Vercel, PostgreSQL externo, snapshot/saldo Daytona e conta TikTok autorizada. O callback reduz dependência de cron, mas sandbox pode continuar consumindo recursos se a suspensão remota falhar. Vercel Hobby não é plano para SaaS comercial. Não inclui pagamentos automáticos.
+## Limites desta validação
+
+Não foi executado build Docker neste ambiente. Não foram realizados deploys reais no Vercel/Railway nem transmissão real ao TikTok. Os testes de integração locais usam transporte local ou substitutos; não comprovam credenciais, saldo, elegibilidade LIVE ou disponibilidade de rede dos provedores.
+
+O teste TCP enviado pelo usuário mostrou conexão à porta 1935 no Railway. Isso permite continuar a implantação, mas ainda é necessário confirmar a transmissão com uma URL e chave RTMP válidas.
+
+Leia `README.md` antes de migrar. A primeira recuperação no Railway limpa a seleção dos arquivos antigos: os vídeos precisam ser enviados novamente. Preserve `APP_SECRET` e o banco existente.

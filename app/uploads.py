@@ -19,10 +19,10 @@ def install(app,current,db,active,owned,lockuser):
   if u.env_status!='ready':raise HTTPException(409,'Aguarde seu ambiente ficar pronto.')
   ext=Path(c.name).suffix.lower()
   if c.kind not in ('video','cover') or ext not in (['.mp4','.mkv','.mov','.webm'] if c.kind=='video' else ['.jpg','.jpeg','.png']):raise HTTPException(422,'Tipo de arquivo inválido.')
-  limit=int(os.getenv('MAX_VIDEO_MB','500'))*1048576 if c.kind=='video' else 5*1048576
+  limit=int(os.getenv('MAX_VIDEO_MB','100'))*1048576 if c.kind=='video' else 5*1048576
   total=s.scalar(select(func.sum(Asset.size)).where(Asset.user_id==u.id)) or 0
   reserved=s.scalar(select(func.sum(Upload.size)).where(Upload.user_id==u.id,Upload.expires>time.time())) or 0
-  if c.size>limit or total+reserved+c.size>int(os.getenv('MAX_STORAGE_MB','2000'))*1048576:raise HTTPException(413,'Limite de arquivo ou armazenamento atingido.')
+  if c.size>limit or total+reserved+c.size>int(os.getenv('MAX_STORAGE_MB','200'))*1048576:raise HTTPException(413,'Limite de arquivo ou armazenamento atingido.')
   id=uid();path=ROOT+'/'+id+ext
   r=ds.get(u).process.exec('mkdir -p '+ROOT+'/.uploads/'+id,timeout=10)
   if r.exit_code!=0:raise HTTPException(502,'Não foi possível preparar o envio.')
