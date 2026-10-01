@@ -23,6 +23,19 @@ def cookies(raw):
   raw='; '.join(parts)
  if '\n' in raw or '\r' in raw or not re.search(r'(?:^|;\s*)(sessionid|sid_tt)=',raw):raise ValueError('Cookies inválidos: forneça sessionid ou sid_tt (texto, JSON ou Netscape).')
  return raw
+def refusal_detail(data):
+ # Only return fixed descriptions for recognized provider messages, never raw JSON.
+ text=' '.join(str(data.get(k,'')) for k in ('prompts','message')).lower()
+ if any(x in text for x in ("please login", "doesn't login", 'not logged in', 'login required', 'log in first')):
+  return 'O TikTok informa que a solicitação não está autenticada. A sessão enviada não foi reconhecida neste endpoint.'
+ if any(x in text for x in ('session expired', 'session has expired')):
+  return 'O TikTok informa que a sessão expirou.'
+ if any(x in text for x in ('permission denied', 'no permission', 'not enough permissions', 'not eligible', 'not authorized')):
+  return 'O TikTok informa falta de permissão ou elegibilidade para esta operação.'
+ if any(x in text for x in ('update to the latest', 'version too old', 'outdated version')):
+  return 'O TikTok solicita atualizar a versão do cliente.'
+ return 'Mensagem do TikTok ainda não classificada; o código sozinho não identifica a causa.'
+
 class TikTok:
  def __init__(self,cookie):
   self.cookie=cookie
@@ -39,7 +52,7 @@ class TikTok:
    code=j.get('status_code')
    code=str(code) if isinstance(code,int) or (isinstance(code,str) and code.isdigit() and len(code)<16) else 'indisponível'
    prompts=bool(j.get('data',{}).get('prompts'))
-   raise ValueError(f'TikTok recusou a operação (HTTP {r.status_code}, status_code={code}, prompts={prompts}). Verifique sessão, elegibilidade LIVE e versão do Studio.')
+   raise ValueError(f'TikTok recusou a operação (HTTP {r.status_code}, status_code={code}, prompts={prompts}). {refusal_detail(j.get("data",{}))}')
   return j.get('data',{})
  def generate(self,config,cover=None):
   cover_uri=''
