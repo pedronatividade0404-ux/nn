@@ -1,0 +1,1 @@
+{"manifest_version":3,"name":"NexaTok · Importar sessão TikTok","version":"1.0.0","description":"Importa sua sessão TikTok para um NexaTok autorizado por você.","permissions":["cookies","activeTab","scripting"],"host_permissions":["https://*.tiktok.com/*"],"action":{"default_popup":"popup.html"}}

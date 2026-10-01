@@ -1,0 +1,22 @@
+[project]
+name = "nexatok-vercel"
+version = "2.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "SQLAlchemy>=2.0,<3",
+  "psycopg[binary]>=3.2,<4",
+  "httpx>=0.27,<1",
+  "cryptography>=43",
+  "python-multipart>=0.0.18",
+  "pydantic>=2.9,<3",
+  "daytona>=0.220,<0.221",
+  "qrcode[pil]>=8,<9"
+]
+
+[tool.uv]
+package = false
+
+[tool.vercel]
+entrypoint = "index:app"
