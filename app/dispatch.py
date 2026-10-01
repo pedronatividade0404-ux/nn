@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from .db import Session,Control,Job,User
 from . import operations
+from .diagnostics import report
 SAFE_RETRY={'provision','start','stop','check'}
 def ensure_control(s,uid):
  if s.get(Control,uid):return
@@ -36,7 +37,8 @@ def process(job_id,uid):
     operations.execute(s,j);j.state='done';j.error=''
    except Exception as e:
     s.rollback();j=s.get(Job,job_id);j.state='error'
-    j.error=str(e) if isinstance(e,ValueError) else 'Falha na comunicação com Daytona/TikTok. Revise credenciais, snapshot e saldo.'
+    diagnostic=report(e,job_id)
+    j.error=str(e) if isinstance(e,ValueError) else diagnostic
     if j.kind=='provision':
      u=s.get(User,uid);u.env_status='error';u.env_error=j.error
    j.lease=0;s.commit();return {'job_id':j.id,'state':j.state,'error':j.error}
