@@ -118,3 +118,13 @@ def test_upload_finalizer_assembles_actual_chunks_and_is_idempotent(tmp_path):
  assert (tmp_path/'assets'/(id+'.mp4')).read_bytes()==b'first-partsecond-part'
  assert not folder.exists()
  subprocess.run(cmd,env=env,check=True)
+
+def test_provider_diagnostics_never_log_exception_secrets(caplog):
+ from app.diagnostics import StageError,report
+ from daytona.common.errors import DaytonaForbiddenError
+ e=DaytonaForbiddenError('Authorization: Bearer TOP_SECRET cookie=sessionid=PRIVATE',status_code=403)
+ message=report(StageError('listar ambientes Daytona',e),'reference-id')
+ assert 'HTTP 403' in message;assert 'listar ambientes' in message
+ assert 'TOP_SECRET' not in caplog.text+message
+ assert 'PRIVATE' not in caplog.text+message
+ assert 'NEXATOK_JOB_FAILED' in caplog.text
