@@ -2,6 +2,23 @@
 import os,json,re,httpx
 BASE='https://webcast16-normal-c-useast2a.tiktokv.com/'
 VERSION=os.getenv('TIKTOK_STUDIO_VERSION','0.69.2')
+def allowed_cookie_domain(domain):
+ domain=domain.lower().lstrip('.')
+ return any(domain==root or domain.endswith('.'+root) for root in ('tiktok.com','tiktokv.com'))
+
+def dispatch_host(payload):
+ actions=payload.get('data',{}).get('ttnet_dispatch_actions',[])
+ maps=[a.get('param',{}).get('strategy_info',{}) for a in actions if isinstance(a,dict)]
+ maps=[m for m in maps if isinstance(m,dict)]
+ host=next((m.get('webcast-normal.tiktokv.com') for m in maps if m.get('webcast-normal.tiktokv.com')),None)
+ for _ in range(4):
+  target=next((m.get(host) for m in maps if isinstance(host,str) and m.get(host)),None)
+  if not target or target==host:break
+  host=target
+ if not isinstance(host,str) or not re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)*\.tiktokv\.com',host):
+  raise ValueError('TikTok não retornou um servidor de LIVE válido.')
+ return 'https://'+host+'/'
+
 def cookies(raw):
  raw=raw.strip()
  if raw.startswith(('[','{')):
@@ -11,7 +28,7 @@ def cookies(raw):
   parts=[]
   for c in data:
    domain=c.get('domain','tiktok.com')
-   if domain.lstrip('.').endswith('tiktok.com'):parts.append(f"{c['name']}={c['value']}")
+   if allowed_cookie_domain(domain):parts.append(f"{c['name']}={c['value']}")
   raw='; '.join(parts)
  elif '\t' in raw:
   parts=[]
@@ -19,7 +36,7 @@ def cookies(raw):
    if line.startswith('#HttpOnly_'):line=line[len('#HttpOnly_'):]
    elif line.startswith('#'):continue
    p=line.split('\t')
-   if len(p)>=7 and p[0].lstrip('.').endswith('tiktok.com'):parts.append(p[5]+'='+p[6])
+   if len(p)>=7 and allowed_cookie_domain(p[0]):parts.append(p[5]+'='+p[6])
   raw='; '.join(parts)
  if '\n' in raw or '\r' in raw or not re.search(r'(?:^|;\s*)(sessionid|sid_tt)=',raw):raise ValueError('Cookies inválidos: forneça sessionid ou sid_tt (texto, JSON ou Netscape).')
  return raw
@@ -38,12 +55,22 @@ def refusal_detail(data):
 
 class TikTok:
  def __init__(self,cookie):
+  self.base=None
   self.cookie=cookie
   self.headers={'Cookie':cookie,'User-Agent':f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TikTokLIVEStudio/{VERSION} Chrome/108.0.5359.215 Safari/537.36'}
   self.params={'aid':'8311','app_name':'tiktok_live_studio','channel':'studio','device_platform':'windows','live_mode':'6','version_code':VERSION,'webcast_language':'en','app_language':'en','language':'en'}
+ def server_url(self):
+  if self.base:return self.base
+  with httpx.Client(timeout=15,follow_redirects=False) as c:
+   r=c.get('https://tnc16-platform-useast1a.tiktokv.com/get_domains/v4/',params={'aid':'8311','ttwebview_version':'1130022001','device_platform':'win'})
+  if r.status_code!=200:raise ValueError(f'Não foi possível consultar o servidor TikTok (HTTP {r.status_code}).')
+  try:payload=r.json()
+  except ValueError:raise ValueError('Resposta inválida ao consultar o servidor TikTok.')
+  self.base=dispatch_host(payload)
+  return self.base
  def request(self,path,*,method='GET',data=None,files=None,params=None):
   with httpx.Client(timeout=30,follow_redirects=False) as c:
-   r=c.request(method,BASE+path,headers=self.headers,params={**self.params,**(params or {})},data=data,files=files)
+   r=c.request(method,self.server_url()+path,headers=self.headers,params={**self.params,**(params or {})},data=data,files=files)
   if r.status_code in (401,403):raise ValueError('TikTok recusou a sessão ou a autorização LIVE. Atualize os cookies e confirme acesso ao LIVE Studio.')
   if r.status_code!=200:raise ValueError(f'TikTok respondeu HTTP {r.status_code}.')
   try:j=r.json()
