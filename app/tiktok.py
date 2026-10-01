@@ -36,7 +36,10 @@ class TikTok:
   try:j=r.json()
   except ValueError:raise ValueError('TikTok devolveu uma resposta inválida.')
   if j.get('status_code',0)!=0 or j.get('data',{}).get('prompts'):
-   raise ValueError('TikTok recusou a operação. Verifique sessão, elegibilidade LIVE e versão do Studio.')
+   code=j.get('status_code')
+   code=str(code) if isinstance(code,int) or (isinstance(code,str) and code.isdigit() and len(code)<16) else 'indisponível'
+   prompts=bool(j.get('data',{}).get('prompts'))
+   raise ValueError(f'TikTok recusou a operação (HTTP {r.status_code}, status_code={code}, prompts={prompts}). Verifique sessão, elegibilidade LIVE e versão do Studio.')
   return j.get('data',{})
  def generate(self,config,cover=None):
   cover_uri=''
