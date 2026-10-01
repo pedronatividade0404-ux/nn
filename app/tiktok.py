@@ -71,7 +71,7 @@ class TikTok:
   self.cookie=cookie
   self.headers={'Cookie':cookie,'User-Agent':f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TikTokLIVEStudio/{VERSION} Chrome/108.0.5359.215 Safari/537.36'}
   self.params={'aid':'8311','app_name':'tiktok_live_studio','channel':'studio','device_platform':'windows','live_mode':'6','version_code':VERSION,'webcast_language':'en','app_language':'en','language':'en'}
-  self.params.update({'webcast_sdk_version':VERSION.replace('.',''),'browser_version':self.headers['User-Agent'].removeprefix('Mozilla/'),'browser_name':'Mozilla','browser_platform':'Win32','browser_language':'en-US','screen_width':'1920','screen_height':'1080','timezone_name':'America/Sao_Paulo'})
+  self.params.update({'browser_version':self.headers['User-Agent'].removeprefix('Mozilla/'),'browser_name':'Mozilla','browser_platform':'Win32','browser_language':'en-US','screen_width':'1920','screen_height':'1080','timezone_name':'America/Sao_Paulo'})
  def server_url(self):
   if self.base:return self.base
   with httpx.Client(timeout=15,follow_redirects=False) as c:
