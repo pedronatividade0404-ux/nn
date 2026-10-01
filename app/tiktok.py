@@ -40,6 +40,18 @@ def cookies(raw):
   raw='; '.join(parts)
  if '\n' in raw or '\r' in raw or not re.search(r'(?:^|;\s*)(sessionid|sid_tt)=',raw):raise ValueError('Cookies inválidos: forneça sessionid ou sid_tt (texto, JSON ou Netscape).')
  return raw
+def safe_prompt(data,cookie):
+ raw=data.get('prompts') or data.get('message')
+ if not isinstance(raw,str):return 'Mensagem sem texto simples.'
+ for part in cookie.split(';'):
+  _,sep,value=part.strip().partition('=')
+  if sep and value:raw=raw.replace(value,'[oculto]')
+ raw=re.sub(r'https?://\S+|rtmps?://\S+','[URL oculta]',raw)
+ raw=re.sub(r'(?i)(?:bearer\s+\S+|(?:sessionid|sid_tt|token|cookie|password|stream_key)\s*[:=]\s*[^\s;,]+)','[credencial oculta]',raw)
+ raw=re.sub(r'[A-Za-z0-9_=-]{24,}','[identificador oculto]',raw)
+ raw=re.sub(r'[\x00-\x1f<>]',' ',raw)
+ return raw[:400]
+
 def refusal_detail(data):
  # Only return fixed descriptions for recognized provider messages, never raw JSON.
  text=' '.join(str(data.get(k,'')) for k in ('prompts','message')).lower()
@@ -79,7 +91,7 @@ class TikTok:
    code=j.get('status_code')
    code=str(code) if isinstance(code,int) or (isinstance(code,str) and code.isdigit() and len(code)<16) else 'indisponível'
    prompts=bool(j.get('data',{}).get('prompts'))
-   raise ValueError(f'TikTok recusou a operação (HTTP {r.status_code}, status_code={code}, prompts={prompts}). {refusal_detail(j.get("data",{}))}')
+   raise ValueError(f'TikTok recusou a operação (HTTP {r.status_code}, status_code={code}, prompts={prompts}). {refusal_detail(j.get("data",{}))} Detalhe: {safe_prompt(j.get("data",{}),self.cookie)}')
   return j.get('data',{})
  def generate(self,config,cover=None):
   cover_uri=''
